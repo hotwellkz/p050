@@ -137,8 +137,8 @@ success ".env настроен"
 # 8. Установка pm2 (если не установлен)
 info "Проверяю pm2..."
 if ! command -v pm2 &> /dev/null; then
-    info "Устанавливаю pm2 глобально..."
-    npm install -g pm2 || error "Не удалось установить pm2"
+    info "Устанавливаю pm2 глобально (требуются права root)..."
+    sudo npm install -g pm2 || error "Не удалось установить pm2"
     success "pm2 установлен"
 else
     info "pm2 уже установлен"
