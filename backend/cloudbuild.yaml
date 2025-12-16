@@ -1,0 +1,9 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/prompt-6a4fd/shortsai-backend', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/prompt-6a4fd/shortsai-backend']
+
+images:
+  - 'gcr.io/prompt-6a4fd/shortsai-backend'
+

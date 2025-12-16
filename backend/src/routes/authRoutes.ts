@@ -1,9 +1,13 @@
 import { Router } from "express";
 import { google } from "googleapis";
+import * as crypto from "crypto";
 import { Logger } from "../utils/logger";
 import { saveUserOAuthTokens } from "../repositories/userOAuthTokensRepo";
 import { authRequired } from "../middleware/auth";
+import { requireSession, setSessionCookie, clearSessionCookie, createSessionToken } from "../middleware/session";
 import { generateOAuthState } from "../utils/oauthState";
+import * as admin from "firebase-admin";
+import { isFirebaseAuthAvailable } from "../services/firebaseAdmin";
 
 const router = Router();
 
@@ -28,6 +32,136 @@ const SCOPES = [
   "https://www.googleapis.com/auth/drive.file",
   "https://www.googleapis.com/auth/drive"
 ];
+
+/**
+ * POST /api/auth/session
+ * Создаёт сессию через cookie на основе Firebase ID token
+ * 
+ * Body: { idToken: string }
+ * 
+ * Валидирует Firebase ID token, создаёт JWT session token,
+ * устанавливает httpOnly cookie и возвращает успех
+ */
+router.post("/session", async (req, res) => {
+  const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
+  try {
+    const { idToken } = req.body as { idToken?: string };
+
+    Logger.info("POST /api/auth/session: Request received", {
+      requestId,
+      hasIdToken: !!idToken,
+      method: req.method,
+      path: req.path,
+      origin: req.headers.origin || "none"
+    });
+
+    if (!idToken || typeof idToken !== "string") {
+      Logger.warn("POST /api/auth/session: Missing idToken", {
+        requestId,
+        hasIdToken: !!idToken,
+        idTokenType: typeof idToken
+      });
+      return res.status(400).json({
+        error: "BAD_REQUEST",
+        message: "idToken is required in request body"
+      });
+    }
+
+    // Проверяем, что Firebase Admin доступен
+    if (!isFirebaseAuthAvailable()) {
+      Logger.error("POST /api/auth/session: Firebase Admin not available", {
+        requestId
+      });
+      return res.status(503).json({
+        error: "AUTH_UNAVAILABLE",
+        message: "Authentication service unavailable"
+      });
+    }
+
+    // Верифицируем Firebase ID token
+    let decodedToken: admin.auth.DecodedIdToken;
+    try {
+      decodedToken = await admin.auth().verifyIdToken(idToken);
+      
+      Logger.info("POST /api/auth/session: Firebase token verified", {
+        requestId,
+        uid: decodedToken.uid,
+        email: decodedToken.email || "not provided"
+      });
+    } catch (verifyError: any) {
+      Logger.warn("POST /api/auth/session: Firebase token verification failed", {
+        requestId,
+        error: verifyError?.message || String(verifyError),
+        errorCode: verifyError?.code
+      });
+      return res.status(401).json({
+        error: "INVALID_TOKEN",
+        message: "Invalid or expired Firebase ID token"
+      });
+    }
+
+    // Создаём session token
+    const sessionToken = createSessionToken({
+      uid: decodedToken.uid,
+      email: decodedToken.email
+    });
+
+    // Устанавливаем cookie
+    setSessionCookie(res, sessionToken);
+
+    Logger.info("POST /api/auth/session: Session created successfully", {
+      requestId,
+      uid: decodedToken.uid,
+      email: decodedToken.email || "not provided",
+      cookieSet: true
+    });
+
+    return res.json({
+      success: true,
+      user: {
+        uid: decodedToken.uid,
+        email: decodedToken.email
+      }
+    });
+  } catch (error: any) {
+    Logger.error("POST /api/auth/session: Unexpected error", {
+      requestId,
+      error: error?.message || String(error),
+      errorStack: error?.stack
+    });
+    
+    return res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: "Failed to create session"
+    });
+  }
+});
+
+/**
+ * POST /api/auth/session/logout
+ * Удаляет сессию (очищает cookie)
+ */
+router.post("/session/logout", (req, res) => {
+  const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
+  Logger.info("POST /api/auth/session/logout: Request received", {
+    requestId,
+    method: req.method,
+    path: req.path
+  });
+
+  clearSessionCookie(res);
+
+  Logger.info("POST /api/auth/session/logout: Session cleared", {
+    requestId
+  });
+
+  return res.json({
+    success: true,
+    message: "Session cleared"
+  });
+});
 
 /**
  * GET /api/auth/user-id
@@ -94,25 +228,43 @@ router.get("/google", (req, res) => {
 /**
  * GET /api/auth/google/drive
  * Начинает OAuth flow для Google Drive
- * Требует авторизацию, получает userId из токена
+ * Требует сессию через cookie, получает userId из сессии
  * Делает redirect на Google OAuth URL
  */
-router.get("/google/drive", authRequired, async (req, res) => {
+router.get("/google/drive", requireSession, async (req, res) => {
   const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   const frontendOrigin = process.env.FRONTEND_ORIGIN || "https://shortsai.ru";
   
   try {
-    const userId = req.user!.uid;
+    // Проверяем, что пользователь авторизован через сессию
+    if (!req.user?.uid) {
+      Logger.warn("GET /api/auth/google/drive: User not authenticated", {
+        requestId,
+        method: req.method,
+        path: req.path,
+        hasUser: !!req.user,
+        cookies: Object.keys(req.cookies || {})
+      });
+      return res.status(401).json({
+        error: "Unauthorized",
+        message: "Session cookie is missing or invalid. Please login first."
+      });
+    }
+
+    const userId = req.user.uid;
     const returnTo = (req.query.returnTo as string) || "/settings";
     
     Logger.info("GET /api/auth/google/drive: OAuth flow started", {
       requestId,
       userId,
+      email: req.user.email || "not provided",
       returnTo,
       method: req.method,
       path: req.path,
       originalUrl: req.originalUrl,
-      userAgent: req.headers["user-agent"]
+      userAgent: req.headers["user-agent"],
+      origin: req.headers.origin || "none",
+      hasSessionCookie: !!req.cookies?.session
     });
     
     // Проверяем наличие необходимых env переменных
@@ -146,8 +298,8 @@ router.get("/google/drive", authRequired, async (req, res) => {
     const state = generateOAuthState({
       userId,
       returnTo,
-      timestamp: Date.now()
-      // nonce будет сгенерирован автоматически в generateOAuthState
+      timestamp: Date.now(),
+      nonce: crypto.randomBytes(16).toString("hex")
     });
     
     // Scopes для Google Drive

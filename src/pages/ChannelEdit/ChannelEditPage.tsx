@@ -1478,6 +1478,7 @@ const ChannelEditPage = () => {
                           type="button"
                           onClick={() => {
                             // Прямой redirect на backend endpoint, который сделает redirect на Google OAuth
+                            // Cookie сессия будет отправлена автоматически браузером
                             const currentPath = window.location.pathname;
                             const backendUrl = import.meta.env.VITE_API_BASE_URL || "https://shortsai-backend-905027425668.us-central1.run.app";
                             window.location.href = `${backendUrl}/api/auth/google/drive?returnTo=${encodeURIComponent(currentPath)}`;

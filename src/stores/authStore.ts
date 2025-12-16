@@ -38,12 +38,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   setFromFirebaseUser: (firebaseUser) => {
     if (firebaseUser) {
+      // Создаём сессию на бэкенде после успешного логина (асинхронно, не блокируем UI)
+      import("../api/session").then(({ createSession }) => {
+        createSession().catch((error) => {
+          console.error("Failed to create backend session:", error);
+        });
+      });
+      
       set({
         user: mapUserToUserData(firebaseUser),
         status: "authenticated",
         error: null
       });
     } else {
+      // Очищаем сессию при logout (асинхронно)
+      import("../api/session").then(({ clearSession }) => {
+        clearSession().catch((error) => {
+          console.error("Failed to clear backend session:", error);
+        });
+      });
+      
       set({
         user: null,
         status: "unauthenticated"

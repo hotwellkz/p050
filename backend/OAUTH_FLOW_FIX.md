@@ -217,3 +217,4 @@ gcloud run services logs read shortsai-backend --region us-central1 --limit 50 |
 ❌ **НЕ используется `fetch()` для старта OAuth**  
 ❌ **НЕ возвращается JSON из callback**
 
+

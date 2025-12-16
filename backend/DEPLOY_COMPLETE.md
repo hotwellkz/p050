@@ -90,3 +90,4 @@ gcloud builds submit --tag gcr.io/prompt-6a4fd/shortsai-backend
 gcloud run deploy shortsai-backend --image gcr.io/prompt-6a4fd/shortsai-backend:latest --platform managed --region us-central1
 ```
 
+

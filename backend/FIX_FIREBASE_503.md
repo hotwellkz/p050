@@ -130,3 +130,4 @@ gcloud run services logs read shortsai-backend --region us-central1 --limit 50
 
 
 
+

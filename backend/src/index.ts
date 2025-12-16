@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import cron from "node-cron";
 // Инициализация Firebase Admin (должна быть до импорта роутов, которые используют Firestore)
 import "./services/firebaseAdmin";
@@ -99,7 +100,8 @@ const corsOptions: cors.CorsOptions = {
     
     // Проверяем whitelist
     if (allowedOrigins.includes(normalizedOrigin)) {
-      return callback(null, true);
+      // Возвращаем точный origin для правильной работы cookies
+      return callback(null, normalizedOrigin);
     }
     
     // Логируем отклонённый origin для диагностики
@@ -121,7 +123,7 @@ const corsOptions: cors.CorsOptions = {
     "x-client-version"
   ],
   exposedHeaders: ["Content-Length", "Content-Type"],
-  credentials: true,
+  credentials: true, // КРИТИЧНО для работы cookies между доменами
   maxAge: 86400, // 24 часа
   optionsSuccessStatus: 204
 };
@@ -132,6 +134,10 @@ app.use(cors(corsOptions));
 // Явный обработчик OPTIONS для всех путей (preflight)
 // Это гарантирует, что OPTIONS всегда отвечает 204 с правильными заголовками
 app.options("*", cors(corsOptions));
+
+// Cookie parser должен быть после CORS, но до других middleware
+app.use(cookieParser());
+
 // Увеличиваем лимит размера тела запроса для импорта каналов (до 10MB)
 app.use(express.json({ limit: "10mb" }));
 app.use(express.static("public")); // Для статических файлов (HTML страница для OAuth)
