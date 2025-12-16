@@ -1,11 +1,18 @@
 import { useState, useEffect, useCallback } from "react";
 import { getTelegramStatus, type TelegramIntegrationStatus } from "../api/telegramIntegration";
+import { getGoogleDriveStatus, type GoogleDriveIntegrationStatus } from "../api/googleDriveIntegration";
 
 export interface IntegrationsStatus {
   telegram: {
     connected: boolean;
     status: TelegramIntegrationStatus["status"];
     phoneNumber?: string;
+    loading: boolean;
+    error: string | null;
+  };
+  googleDrive: {
+    connected: boolean;
+    email?: string;
     loading: boolean;
     error: string | null;
   };
@@ -16,6 +23,11 @@ export function useIntegrationsStatus() {
     telegram: {
       connected: false,
       status: "not_connected",
+      loading: true,
+      error: null
+    },
+    googleDrive: {
+      connected: false,
       loading: true,
       error: null
     }
@@ -51,6 +63,33 @@ export function useIntegrationsStatus() {
       }));
     }
 
+    // Загружаем статус Google Drive
+    setStatus((prev) => ({
+      ...prev,
+      googleDrive: { ...prev.googleDrive, loading: true, error: null }
+    }));
+
+    try {
+      const googleDriveStatus = await getGoogleDriveStatus();
+      setStatus((prev) => ({
+        ...prev,
+        googleDrive: {
+          connected: googleDriveStatus.connected,
+          email: googleDriveStatus.email,
+          loading: false,
+          error: null
+        }
+      }));
+    } catch (error: any) {
+      setStatus((prev) => ({
+        ...prev,
+        googleDrive: {
+          ...prev.googleDrive,
+          loading: false,
+          error: error.message || "Не удалось загрузить статус Google Drive"
+        }
+      }));
+    }
   }, []);
 
   useEffect(() => {

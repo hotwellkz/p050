@@ -129,7 +129,7 @@ export async function sendVideoUploadNotification(
       sessionType: generationTransport === "telegram_user" ? "personal" : "shared"
     });
 
-    await client.sendMessage(chatId, { message: text });
+    await client.sendMessage(chatId, { message: text, noWebpage: false });
 
     Logger.info("Video upload notification sent successfully", {
       chatId,

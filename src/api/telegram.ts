@@ -128,35 +128,25 @@ export async function fetchLatestVideoToDrive(channelId: string) {
   };
 }
 
-export async function fetchAndSaveToServer(
+export async function fetchVideoAndUploadToDrive(
   channelId: string,
+  googleDriveFolderId?: string,
   telegramMessageId?: number,
   videoTitle?: string
 ) {
   const headers = await getAuthHeader();
   const res = await axios.post(
-    `${backendBaseUrl}/api/telegram/fetchAndSaveToServer`,
-    { channelId, telegramMessageId, videoTitle },
+    `${backendBaseUrl}/api/telegram/fetchVideoAndUploadToDrive`,
+    { channelId, googleDriveFolderId, telegramMessageId, videoTitle },
     { headers }
   );
   return res.data as {
     status: string;
-    success?: boolean;
-    channelId?: string;
-    channelName?: string;
-    inputPath?: string;
-    filename?: string;
-    channelSlug?: string;
+    fileId?: string;
+    webViewLink?: string;
+    webContentLink?: string;
     fileName?: string;
     message?: string;
-    storage?: {
-      userEmail: string;
-      userDir: string;
-      inputDir: string;
-      archiveDir: string;
-      filePath: string;
-      fileName: string;
-    };
   };
 }
 

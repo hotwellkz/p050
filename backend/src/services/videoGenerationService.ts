@@ -3,7 +3,6 @@ import { scheduleAutoDownload } from "./scheduledTasks";
 import { Logger } from "../utils/logger";
 import { db, isFirestoreAvailable } from "./firebaseAdmin";
 import { getAutoDownloadDelayMinutesForChannel } from "./autoSendScheduler";
-import type { Channel } from "../types/channel";
 
 export type VideoGenerationSource = "schedule" | "custom_prompt";
 
@@ -127,17 +126,9 @@ export async function runVideoGenerationForChannel(
 
     const channel = {
       id: channelId,
-      name: channelData.name || "",
-      platform: "YOUTUBE_SHORTS" as const,
-      language: "ru" as const,
-      targetDurationSec: 60,
-      niche: "",
-      audience: "",
-      tone: "",
-      blockedTopics: "",
       generationTransport: channelData.generationTransport || "telegram_global",
       telegramSyntaxPeer: channelData.telegramSyntaxPeer || null
-    } as Channel;
+    } as { id: string; generationTransport?: "telegram_global" | "telegram_user"; telegramSyntaxPeer?: string | null };
 
     Logger.info("runVideoGenerationForChannel: channel validated", {
       channelId,
@@ -258,7 +249,7 @@ export async function runVideoGenerationForChannel(
           userId,
           source,
           jobId,
-          willRunInMinutes: delayMinutes
+          willRunInMinutes: validDelay
         });
       } catch (scheduleError: any) {
         Logger.error("runVideoGenerationForChannel: failed to schedule auto-download", {

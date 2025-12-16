@@ -29,6 +29,8 @@ import telegramRoutes from "./routes/telegramRoutes";
 import telegramIntegrationRoutes from "./routes/telegramIntegrationRoutes";
 import cronRoutes from "./routes/cronRoutes";
 import promptRoutes from "./routes/promptRoutes";
+import googleDriveRoutes from "./routes/googleDriveRoutes";
+import googleDriveIntegrationRoutes from "./routes/googleDriveIntegrationRoutes";
 import debugRoutes from "./routes/debugRoutes";
 import testFirestoreRoutes from "./routes/testFirestoreRoutes";
 import authRoutes from "./routes/authRoutes";
@@ -38,12 +40,12 @@ import notificationRoutes from "./routes/notificationRoutes";
 import adminRoutes from "./routes/adminRoutes";
 import helpRoutes from "./routes/helpRoutes";
 import userSettingsRoutes from "./routes/userSettingsRoutes";
-import mediaRoutes from "./routes/mediaRoutes";
 import { processAutoSendTick } from "./services/autoSendScheduler";
 import { Logger } from "./utils/logger";
 import { getFirestoreInfo, isFirestoreAvailable } from "./services/firebaseAdmin";
 
 const app = express();
+// Cloud Run задаёт порт через переменную окружения PORT, по умолчанию 8080
 const port = Number(process.env.PORT) || 8080;
 
 // Нормализуем FRONTEND_ORIGIN (убираем завершающий слеш)
@@ -66,15 +68,6 @@ app.use(
       const normalizedOrigin = origin.replace(/\/+$/, "");
       const normalizedFrontendOrigin = frontendOrigin.replace(/\/+$/, "");
       
-      // Поддержка wildcard для Netlify доменов (*.netlify.app)
-      if (normalizedFrontendOrigin.includes("*")) {
-        const pattern = normalizedFrontendOrigin.replace(/\*/g, ".*");
-        const regex = new RegExp(`^${pattern}$`);
-        if (regex.test(normalizedOrigin)) {
-          return callback(null, true);
-        }
-      }
-      
       // Разрешаем запросы с нормализованного origin
       if (normalizedOrigin === normalizedFrontendOrigin) {
         return callback(null, true);
@@ -84,19 +77,6 @@ app.use(
       if (normalizedOrigin + "/" === normalizedFrontendOrigin || 
           normalizedOrigin === normalizedFrontendOrigin + "/") {
         return callback(null, true);
-      }
-      
-      // Поддержка множественных доменов через запятую
-      if (normalizedFrontendOrigin.includes(",")) {
-        const allowedOrigins = normalizedFrontendOrigin.split(",").map(o => o.trim());
-        if (allowedOrigins.some(allowed => {
-          const normalizedAllowed = allowed.replace(/\/+$/, "");
-          return normalizedOrigin === normalizedAllowed || 
-                 normalizedOrigin + "/" === normalizedAllowed ||
-                 normalizedAllowed + "/" === normalizedOrigin;
-        })) {
-          return callback(null, true);
-        }
       }
       
       callback(new Error("Not allowed by CORS"));
@@ -112,6 +92,8 @@ app.use("/api/telegram", telegramRoutes);
 app.use("/api/telegram-integration", telegramIntegrationRoutes);
 app.use("/api/cron", cronRoutes);
 app.use("/api/prompt", promptRoutes);
+app.use("/api/google-drive", googleDriveRoutes);
+app.use("/api/google-drive-integration", googleDriveIntegrationRoutes);
 app.use("/api/debug", debugRoutes);
 app.use("/api/test", testFirestoreRoutes);
 app.use("/api/auth", authRoutes);
@@ -121,7 +103,6 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/help", helpRoutes);
 app.use("/api/user-settings", userSettingsRoutes);
-app.use("/api/media", mediaRoutes);
 
 // Логируем подключенные маршруты для диагностики
 Logger.info("Backend routes registered", {
@@ -130,13 +111,14 @@ Logger.info("Backend routes registered", {
     "/api/telegram-integration",
     "/api/cron",
     "/api/prompt",
+    "/api/google-drive",
+    "/api/google-drive-integration",
     "/api/debug",
     "/api/test",
     "/api/auth",
     "/api/channels",
     "/api/schedule",
-    "/api/notifications",
-    "/api/media"
+    "/api/notifications"
   ]
 });
 
@@ -144,15 +126,10 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
-// Слушаем на всех интерфейсах (0.0.0.0) для доступа через VPN
+// Слушаем на всех интерфейсах (0.0.0.0), как требует Cloud Run
 app.listen(port, "0.0.0.0", () => {
   // eslint-disable-next-line no-console
-  console.log(`Backend listening on port ${port} (0.0.0.0)`);
-  
-  // Логируем STORAGE_ROOT при старте
-  const pathModule = require("path");
-  const storageRoot = process.env.STORAGE_ROOT || pathModule.resolve(process.cwd(), 'storage/videos');
-  console.log('[Storage] Using STORAGE_ROOT:', storageRoot);
+  console.log(`Backend listening on port ${port}`);
   
   // Логируем информацию о Firebase при старте
   const firestoreInfo = getFirestoreInfo();
@@ -185,9 +162,9 @@ if (process.env.ENABLE_CRON_SCHEDULER !== "false") {
   Logger.info("Cron scheduler disabled: use /api/cron/manual-tick with Cloud Scheduler");
 }
 
-// Blottata мониторинг - работает с локальным хранилищем
+// Запускаем мониторинг Blottata каждую минуту
 if (process.env.ENABLE_CRON_SCHEDULER !== "false") {
-  import("./services/blottataLocalMonitor").then(({ processBlottataTick }) => {
+  import("./services/blottataDriveMonitor").then(({ processBlottataTick }) => {
     cron.schedule("* * * * *", async () => {
       Logger.info("Cron scheduler: running Blottata monitoring tick");
       try {

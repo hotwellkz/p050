@@ -105,8 +105,3 @@ export function getFirebaseError(): Error | null {
   return firebaseError;
 }
 
-// Функция для получения admin экземпляра (для использования в auth())
-export function getAdmin(): typeof admin | null {
-  return firebaseInitialized ? admin : null;
-}
-

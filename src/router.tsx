@@ -16,6 +16,7 @@ import ScriptGenerationPage from "./pages/ScriptGeneration/ScriptGenerationPage"
 import PrivacyPolicy from "./pages/PrivacyPolicy/PrivacyPolicy";
 import AccountSettingsPage from "./pages/AccountSettings/AccountSettingsPage";
 import NotificationsPage from "./pages/Notifications/NotificationsPage";
+import GoogleDriveCallbackPage from "./pages/GoogleDriveCallback/GoogleDriveCallbackPage";
 import BlotatoSetupPage from "./pages/BlotatoSetup/BlotatoSetupPage";
 import { useAuthStore } from "./stores/authStore";
 
@@ -87,6 +88,14 @@ const AppRouter = () => {
         element={
           <PrivateRoute>
             <AccountSettingsPage />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/google-drive/callback"
+        element={
+          <PrivateRoute>
+            <GoogleDriveCallbackPage />
           </PrivateRoute>
         }
       />

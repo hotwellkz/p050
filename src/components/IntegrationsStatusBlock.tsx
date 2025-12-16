@@ -1,17 +1,22 @@
 import { CheckCircle2, XCircle, Loader2, ExternalLink, HelpCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useIntegrationsStatus } from "../hooks/useIntegrationsStatus";
+import { getGoogleDriveAuthUrl } from "../api/googleDriveIntegration";
 import { SectionHelpButton } from "./aiAssistant/SectionHelpButton";
+import { useState } from "react";
 
 interface IntegrationsStatusBlockProps {
   onTelegramConnect?: () => void;
+  onGoogleDriveConnect?: () => void;
 }
 
 export function IntegrationsStatusBlock({
-  onTelegramConnect
+  onTelegramConnect,
+  onGoogleDriveConnect
 }: IntegrationsStatusBlockProps) {
   const { status, refreshStatus } = useIntegrationsStatus();
   const navigate = useNavigate();
+  const [connectingGoogleDrive, setConnectingGoogleDrive] = useState(false);
 
   const handleConnectTelegram = () => {
     if (onTelegramConnect) {
@@ -22,7 +27,25 @@ export function IntegrationsStatusBlock({
     }
   };
 
-  const handleManageInSettings = (integration: "telegram") => {
+  const handleConnectGoogleDrive = async () => {
+    if (onGoogleDriveConnect) {
+      onGoogleDriveConnect();
+      return;
+    }
+
+    try {
+      setConnectingGoogleDrive(true);
+      const { authUrl } = await getGoogleDriveAuthUrl();
+      // Открываем OAuth в новом окне или перенаправляем
+      window.location.href = authUrl;
+    } catch (error: any) {
+      console.error("Failed to connect Google Drive:", error);
+      alert(`Не удалось подключить Google Drive: ${error.message || "Неизвестная ошибка"}`);
+      setConnectingGoogleDrive(false);
+    }
+  };
+
+  const handleManageInSettings = (integration: "telegram" | "googleDrive") => {
     navigate("/settings");
   };
 
@@ -34,7 +57,7 @@ export function IntegrationsStatusBlock({
         </h3>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-1">
+      <div className="grid gap-4 sm:grid-cols-2">
         {/* Telegram интеграция */}
         <div className="rounded-lg border border-white/10 bg-slate-950/60 p-4">
           <div className="mb-3 flex items-start justify-between">
@@ -92,6 +115,76 @@ export function IntegrationsStatusBlock({
                 aria-label="Подключить Telegram"
               >
                 Подключить Telegram
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Google Drive интеграция */}
+        <div className="rounded-lg border border-white/10 bg-slate-950/60 p-4">
+          <div className="mb-3 flex items-start justify-between">
+            <div className="flex items-center gap-2">
+              <h4 className="text-sm font-semibold text-slate-200">Google Drive</h4>
+              <SectionHelpButton
+                sectionKey="google_drive_integration"
+                sectionTitle="Google Drive интеграция"
+                currentStatus={status.googleDrive.connected ? "connected" : "not_connected"}
+                context={{ email: status.googleDrive.email }}
+              />
+            </div>
+            {status.googleDrive.loading ? (
+              <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+            ) : status.googleDrive.connected ? (
+              <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+            ) : (
+              <XCircle className="h-5 w-5 text-red-400" />
+            )}
+          </div>
+
+          {status.googleDrive.loading ? (
+            <p className="text-xs text-slate-400">Загрузка статуса...</p>
+          ) : status.googleDrive.connected ? (
+            <>
+              <p className="mb-2 text-sm font-medium text-emerald-300">
+                ✅ Google Drive подключён
+              </p>
+              {status.googleDrive.email && (
+                <p className="mb-3 text-xs text-slate-400">
+                  {status.googleDrive.email}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => handleManageInSettings("googleDrive")}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-slate-800/50 px-3 py-2 text-xs font-medium text-slate-300 transition hover:bg-slate-700/50"
+              >
+                <ExternalLink className="h-3 w-3" />
+                Управлять в настройках
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="mb-2 text-sm font-medium text-red-300">
+                ❌ Google Drive не подключён
+              </p>
+              <p className="mb-3 text-xs text-slate-400">
+                Нужен для автоматической загрузки и архивации видео на ваш диск
+              </p>
+              <button
+                type="button"
+                onClick={handleConnectGoogleDrive}
+                disabled={connectingGoogleDrive}
+                className="w-full rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white transition hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                aria-label="Подключить Google Drive"
+              >
+                {connectingGoogleDrive ? (
+                  <>
+                    <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                    Подключение...
+                  </>
+                ) : (
+                  "Подключить Google Drive"
+                )}
               </button>
             </>
           )}

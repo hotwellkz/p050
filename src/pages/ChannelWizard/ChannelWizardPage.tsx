@@ -15,6 +15,7 @@ import { getTelegramStatus } from "../../api/telegramIntegration";
 import { getUserSettings } from "../../api/userSettings";
 import { useIntegrationsStatus } from "../../hooks/useIntegrationsStatus";
 import { WizardTelegramStep } from "../../components/wizard/WizardTelegramStep";
+import { WizardGoogleDriveStep } from "../../components/wizard/WizardGoogleDriveStep";
 import { WizardDriveFoldersStep } from "../../components/wizard/WizardDriveFoldersStep";
 import { FieldHelpIcon } from "../../components/aiAssistant/FieldHelpIcon";
 import { suggestNiche } from "../../api/nicheSuggestion";
@@ -134,11 +135,16 @@ const ChannelWizardPage = () => {
       effectiveSteps.push({ id: effectiveSteps.length + 1, title: "Подключение Telegram", type: "telegram" });
     }
     
+    // Добавляем шаг Google Drive (если не подключен)
+    if (!integrationsStatus.status.googleDrive.connected) {
+      effectiveSteps.push({ id: effectiveSteps.length + 1, title: "Авторизация Google Drive", type: "google_drive" });
+    }
+    
     // Всегда добавляем шаг создания папок (обязательный)
     effectiveSteps.push({ id: effectiveSteps.length + 1, title: "Создание папок для канала", type: "drive_folders" });
     
     return effectiveSteps;
-  }, [integrationsStatus.status.telegram.connected]);
+  }, [integrationsStatus.status.telegram.connected, integrationsStatus.status.googleDrive.connected]);
   
   const effectiveSteps = getEffectiveSteps();
   const totalSteps = effectiveSteps.length;
@@ -212,7 +218,7 @@ const ChannelWizardPage = () => {
     const stepType = getCurrentStepType();
     
     // Для шагов интеграций и создания папок логика в самих компонентах
-    if (stepType === "telegram" || stepType === "drive_folders") {
+    if (stepType === "telegram" || stepType === "google_drive" || stepType === "drive_folders") {
       return false; // Кнопка "Далее" не показывается, используется логика компонента
     }
     
@@ -248,7 +254,7 @@ const ChannelWizardPage = () => {
     const stepType = getCurrentStepType();
     
     // Для шагов интеграций и создания папок переход происходит автоматически через onComplete
-    if (stepType === "telegram" || stepType === "drive_folders") {
+    if (stepType === "telegram" || stepType === "google_drive" || stepType === "drive_folders") {
       return;
     }
     
@@ -258,95 +264,56 @@ const ChannelWizardPage = () => {
     }
   };
   
-  // Функция для создания канала напрямую (используется при пропуске Telegram, если это последний шаг)
-  const createChannelDirectly = useCallback(async () => {
-    if (!user?.uid) {
-      setError("Пользователь не авторизован");
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      // Получаем настройки пользователя для подстановки defaultBlottataApiKey
-      let defaultBlottataApiKey: string | undefined = undefined;
-      let hasDefaultBlotatoApiKey = false;
-      try {
-        const userSettings = await getUserSettings();
-        hasDefaultBlotatoApiKey = userSettings.hasDefaultBlottataApiKey || false;
-        if (userSettings.hasDefaultBlottataApiKey && userSettings.defaultBlottataApiKey) {
-          defaultBlottataApiKey = userSettings.defaultBlottataApiKey === "****" 
-            ? undefined 
-            : userSettings.defaultBlottataApiKey;
-        }
-      } catch (settingsError) {
-        console.warn("Failed to load user settings for default Blotato API key", settingsError);
-      }
-
-      // Создаём канал без личного Telegram (используем telegram_global)
-      const channelData: ChannelCreatePayload = {
-        ...formData,
-        generationTransport: "telegram_global", // При пропуске Telegram используем глобальный аккаунт
-        // Включаем Blotato-публикацию для нового канала
-        blotataEnabled: true,
-        // Используем folderId из мастера, если они были созданы ранее
-        driveInputFolderId: wizardDriveFolders?.rootFolderId || formData.driveInputFolderId,
-        driveArchiveFolderId: wizardDriveFolders?.archiveFolderId || formData.driveArchiveFolderId,
-        // Подставляем API-ключ из настроек пользователя, если он есть
-        blotataApiKey: defaultBlottataApiKey,
-      };
-      
-      const newChannel = await createChannel(user.uid, channelData);
-      
-      // Если у пользователя нет сохранённого Blotato API-ключа, перенаправляем на страницу настройки
-      if (!hasDefaultBlotatoApiKey || !defaultBlottataApiKey) {
-        navigate(`/channels/${newChannel.id}/blotato-setup`, { replace: true });
-      } else {
-        // Если ключ есть, переходим к редактированию канала
-        navigate(`/channels/${newChannel.id}/edit`, { replace: true });
-      }
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Ошибка при создании канала"
-      );
-      setLoading(false);
-    }
-  }, [user?.uid, formData, wizardDriveFolders, createChannel, navigate]);
-
   const handleTelegramComplete = useCallback(() => {
     integrationsStatus.refreshStatus();
-    
-    // Используем функциональное обновление для получения актуального currentStep
-    setCurrentStep(prevStep => {
-      const nextStep = prevStep + 1;
-      
-      // Если следующий шаг превышает общее количество шагов, создаём канал напрямую
-      if (nextStep > totalSteps) {
-        // Создаём канал в следующем тике, чтобы избежать проблем с обновлением состояния
-        setTimeout(() => {
-          void createChannelDirectly();
-        }, 0);
-        return prevStep; // Не меняем шаг, так как создаём канал
+    setCurrentStep(prev => {
+      if (prev < totalSteps) {
+        return prev + 1;
       }
-      
-      // Проверяем тип следующего шага
-      const nextStepType = effectiveSteps[nextStep - 1]?.type;
-      
-      // Если следующего шага нет или это не шаг создания папок, и мы на последнем шаге,
-      // создаём канал напрямую
-      if (!nextStepType || (nextStep === totalSteps && nextStepType !== "drive_folders")) {
-        setTimeout(() => {
-          void createChannelDirectly();
-        }, 0);
-        return prevStep;
-      }
-      
-      // Иначе переходим к следующему шагу
-      setError(null);
-      return nextStep;
+      return prev;
     });
-  }, [totalSteps, effectiveSteps, integrationsStatus, createChannelDirectly]);
+    setError(null);
+  }, [totalSteps, integrationsStatus]);
+  
+  const handleGoogleDriveComplete = useCallback(() => {
+    integrationsStatus.refreshStatus();
+    // После подключения Google Drive всегда переходим на шаг создания папок
+    // Пересчитываем шаги с учётом того, что Google Drive теперь подключен
+    const baseSteps = STEPS;
+    const updatedSteps: Array<{ id: number; title: string; type: string }> = [];
+    
+    // Добавляем базовые шаги
+    baseSteps.forEach(step => {
+      updatedSteps.push({ ...step, type: "form" });
+    });
+    
+    // Добавляем шаг Telegram (если не подключен)
+    if (!integrationsStatus.status.telegram.connected) {
+      updatedSteps.push({ id: updatedSteps.length + 1, title: "Подключение Telegram", type: "telegram" });
+    }
+    
+    // Google Drive теперь подключен, поэтому шаг не добавляем
+    
+    // Всегда добавляем шаг создания папок (обязательный)
+    updatedSteps.push({ id: updatedSteps.length + 1, title: "Создание папок для канала", type: "drive_folders" });
+    
+    // Находим индекс шага создания папок
+    const driveFoldersStepIndex = updatedSteps.findIndex(step => step.type === "drive_folders");
+    
+    if (driveFoldersStepIndex !== -1) {
+      // Переходим на шаг создания папок (индекс + 1, так как currentStep начинается с 1)
+      setCurrentStep(driveFoldersStepIndex + 1);
+    } else {
+      // Если шаг не найден (не должно быть), просто переходим на следующий
+      setCurrentStep(prev => {
+        if (prev < updatedSteps.length) {
+          return prev + 1;
+        }
+        return prev;
+      });
+    }
+    setError(null);
+  }, [integrationsStatus.status.telegram.connected]);
   
   const handleDriveFoldersComplete = async (rootFolderId: string, archiveFolderId: string) => {
     // Сохраняем folderId во временное состояние мастера
@@ -354,6 +321,7 @@ const ChannelWizardPage = () => {
     // Обновляем formData с folder IDs
     setFormData(prev => ({
       ...prev,
+      googleDriveFolderId: rootFolderId,
       driveInputFolderId: rootFolderId,
       driveArchiveFolderId: archiveFolderId
     }));
@@ -395,7 +363,8 @@ const ChannelWizardPage = () => {
           driveInputFolderId: rootFolderId,
           driveArchiveFolderId: archiveFolderId,
           // Подставляем API-ключ из настроек пользователя, если он есть
-          blotataApiKey: defaultBlottataApiKey
+          blotataApiKey: defaultBlottataApiKey,
+          googleDriveFolderId: rootFolderId
         };
         
         const newChannel = await createChannel(user.uid, channelData);
@@ -600,8 +569,25 @@ const ChannelWizardPage = () => {
       return () => clearTimeout(timer);
     }
     
-  }, [integrationsStatus.status.telegram.connected, currentStep, handleTelegramComplete]);
+    // Если текущий шаг - Google Drive, но он уже подключен, переходим дальше
+    if (stepType === "google_drive" && integrationsStatus.status.googleDrive.connected && !integrationsStatus.status.googleDrive.loading) {
+      // Небольшая задержка для лучшего UX
+      const timer = setTimeout(() => {
+        handleGoogleDriveComplete();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [integrationsStatus.status.telegram.connected, integrationsStatus.status.googleDrive.connected, currentStep, handleTelegramComplete, handleGoogleDriveComplete]);
   
+  // Проверяем, вернулись ли мы после OAuth Google Drive
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get("integration_refreshed") === "googleDrive") {
+      integrationsStatus.refreshStatus();
+      // Убираем параметр из URL
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [integrationsStatus]);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -643,6 +629,7 @@ const ChannelWizardPage = () => {
         // Подставляем defaultBlottataApiKey только если он не был явно указан
         blotataApiKey: formData.blotataApiKey || defaultBlottataApiKey,
         // Используем folderId из мастера, если они были созданы
+        googleDriveFolderId: wizardDriveFolders?.rootFolderId || formData.googleDriveFolderId,
         driveInputFolderId: wizardDriveFolders?.rootFolderId || formData.driveInputFolderId,
         driveArchiveFolderId: wizardDriveFolders?.archiveFolderId || formData.driveArchiveFolderId
       };
@@ -682,6 +669,15 @@ const ChannelWizardPage = () => {
         <WizardTelegramStep
           onComplete={handleTelegramComplete}
           onSkip={handleTelegramComplete}
+        />
+      );
+    }
+    
+    if (stepType === "google_drive") {
+      return (
+        <WizardGoogleDriveStep
+          onComplete={handleGoogleDriveComplete}
+          onSkip={handleGoogleDriveComplete}
         />
       );
     }

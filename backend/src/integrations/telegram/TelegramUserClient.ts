@@ -4,11 +4,15 @@ import { Logger } from "../../utils/logger";
 import { decrypt } from "../../crypto/aes";
 import { findTelegramIntegrationByUserId } from "../../repositories/telegramUserIntegrationRepo";
 
-const apiId = Number(process.env.TELEGRAM_API_ID);
-const apiHash = process.env.TELEGRAM_API_HASH ?? "";
+function getTelegramCredentials() {
+  const apiId = Number(process.env.TELEGRAM_API_ID);
+  const apiHash = process.env.TELEGRAM_API_HASH ?? "";
 
-if (!apiId || !apiHash) {
-  throw new Error("TELEGRAM_API_ID and TELEGRAM_API_HASH must be set");
+  if (!apiId || !apiHash) {
+    throw new Error("TELEGRAM_API_ID and TELEGRAM_API_HASH must be set");
+  }
+
+  return { apiId, apiHash };
 }
 
 // Кэш активных клиентов для переиспользования
@@ -56,6 +60,7 @@ export async function getClientForUser(
   }
 
   // Создаем клиент
+  const { apiId, apiHash } = getTelegramCredentials();
   const session = new StringSession(sessionString);
   const client = new TelegramClient(session, apiId, apiHash, {
     connectionRetries: 5,

@@ -2,16 +2,21 @@ import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { Logger } from "../utils/logger";
 
-const apiId = Number(process.env.TELEGRAM_API_ID);
-const apiHash = process.env.TELEGRAM_API_HASH ?? "";
+function getTelegramCredentials() {
+  const apiId = Number(process.env.TELEGRAM_API_ID);
+  const apiHash = process.env.TELEGRAM_API_HASH ?? "";
 
-if (!apiId || !apiHash) {
-  throw new Error("TELEGRAM_API_ID and TELEGRAM_API_HASH must be set");
+  if (!apiId || !apiHash) {
+    throw new Error("TELEGRAM_API_ID and TELEGRAM_API_HASH must be set");
+  }
+
+  return { apiId, apiHash };
 }
 
 export async function createTelegramClientFromStringSession(
   stringSession: string
 ): Promise<TelegramClient> {
+  const { apiId, apiHash } = getTelegramCredentials();
   const session = new StringSession(stringSession);
   const client = new TelegramClient(session, apiId, apiHash, {
     connectionRetries: 5,
@@ -44,6 +49,7 @@ type TempClientState = {
 const tempStates = new Map<string, TempClientState>();
 
 export async function createTempClientState(stateId: string, phone: string) {
+  const { apiId, apiHash } = getTelegramCredentials();
   const session = new StringSession("");
   const client = new TelegramClient(session, apiId, apiHash, {
     connectionRetries: 5,

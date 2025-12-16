@@ -269,7 +269,6 @@ export default function BlotatoSetupPage() {
           </h1>
           <p className="text-sm text-slate-400 md:text-base">
             Чтобы видео автоматически публиковались в TikTok, Instagram и YouTube, подключите Blotato и укажите API-ключ и ID аккаунтов.
-            Наше приложение генерирует и сохраняет видео на своём сервере, а Blotato берёт готовые файлы из нашей системы и публикует их в ваши соцсети.
           </p>
         </div>
 
@@ -278,8 +277,7 @@ export default function BlotatoSetupPage() {
           <h2 className="mb-3 text-lg font-semibold text-white">Что такое Blotato?</h2>
           <p className="text-sm leading-relaxed text-slate-300 md:text-base">
             Blotato — это внешний сервис автопубликации контента в соцсети.
-            Наше приложение генерирует и сохраняет видео на своём сервере,
-            а Blotato по API получает ссылки на файлы и публикует их в TikTok, Instagram, YouTube и другие платформы.
+            Наше приложение генерирует и сохраняет видео, а Blotato берёт их из Google Drive и публикует на ваши аккаунты: TikTok, Instagram, YouTube и другие.
           </p>
         </div>
 

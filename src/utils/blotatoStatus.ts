@@ -35,11 +35,11 @@ export function getBlotatoPublishStatus(settings: BlotatoPublishSettings): Blota
   const missing: string[] = [];
 
   if (!inputFolderId || inputFolderId.trim() === '') {
-    missing.push('ID входной папки на сервере');
+    missing.push('ID входной папки Google Drive');
   }
 
   if (!archiveFolderId || archiveFolderId.trim() === '') {
-    missing.push('ID архивной папки на сервере');
+    missing.push('ID папки архива Google Drive');
   }
 
   if (!blotatoApiKey || blotatoApiKey.trim() === '') {

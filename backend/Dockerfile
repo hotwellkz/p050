@@ -22,9 +22,9 @@ RUN npm install --omit=dev
 COPY --from=builder /app/dist ./dist
 COPY public ./public
 
-# Порт настраивается через переменную окружения BACKEND_PORT или PORT (по умолчанию 3000)
+# Порт настраивается через переменную окружения BACKEND_PORT или PORT (по умолчанию 8080 для Cloud Run)
 # Приложение использует PORT, поэтому если задан BACKEND_PORT, он будет использован как PORT
-ARG BACKEND_PORT=3000
+ARG BACKEND_PORT=8080
 ENV PORT=${BACKEND_PORT}
 
 EXPOSE ${BACKEND_PORT}

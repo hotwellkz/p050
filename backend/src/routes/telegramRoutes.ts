@@ -26,7 +26,7 @@ import {
 import { generateVideoFileName } from "../utils/fileUtils";
 import { Logger } from "../utils/logger";
 import { db, isFirestoreAvailable, getFirebaseError } from "../services/firebaseAdmin";
-import { downloadAndUploadVideoToDrive, downloadAndSaveToLocal } from "../services/videoDownloadService";
+import { downloadAndUploadVideoToDrive } from "../services/videoDownloadService";
 
 const router = Router();
 
@@ -853,7 +853,7 @@ router.post("/fetchLatestVideoToDrive", authRequired, async (req, res) => {
 
 // Новый эндпоинт: скачать видео из Telegram во временную папку и загрузить в Google Drive
 // Теперь использует общий сервис downloadAndUploadVideoToDrive
-router.post("/fetchAndSaveToServer", authRequired, async (req, res) => {
+router.post("/fetchVideoAndUploadToDrive", authRequired, async (req, res) => {
   const {
     channelId,
     googleDriveFolderId,
@@ -874,50 +874,42 @@ router.post("/fetchAndSaveToServer", authRequired, async (req, res) => {
   }
 
   const userId = req.user!.uid;
-  Logger.info("fetchAndSaveToServer: start", {
+  Logger.info("fetchVideoAndUploadToDrive: start", {
     userId,
     channelId,
+    googleDriveFolderId,
     telegramMessageId,
     videoTitle: videoTitle || "not provided"
   });
 
-  // Используем новую функцию для сохранения в локальное хранилище
+  // Используем общий сервис для скачивания и загрузки
   try {
-    const result = await downloadAndSaveToLocal({
+    const result = await downloadAndUploadVideoToDrive({
       channelId,
       userId,
       telegramMessageId,
       videoTitle,
+      // При ручной загрузке prompt обычно не доступен, но можно передать если есть
       prompt: undefined
     });
 
     if (result.success) {
       return res.json({
         status: "ok",
-        success: true,
-        channelId,
-        channelName: result.channelName || "unknown",
-        storage: result.storage || {
-          userEmail: "",
-          userDir: "",
-          inputDir: result.inputPath || "",
-          archiveDir: "",
-          filePath: result.inputPath || "",
-          fileName: result.filename || ""
-        },
-        inputPath: result.inputPath,
-        filename: result.filename,
-        channelSlug: result.channelSlug,
-        fileName: result.filename,
-        message: "Видео успешно сохранено на сервер"
+        driveFileId: result.driveFileId,
+        driveWebViewLink: result.driveWebViewLink,
+        fileId: result.driveFileId, // Для обратной совместимости
+        webViewLink: result.driveWebViewLink, // Для обратной совместимости
+        webContentLink: result.driveWebContentLink,
+        fileName: result.fileName
       });
     } else {
       // Обработка ошибок из сервиса
       const errorMessage = result.error || "Unknown error";
 
       // ТОЧНАЯ проверка на TELEGRAM_SESSION_INVALID (только если это реальная ошибка сессии)
-      if (errorMessage.includes("TELEGRAM_SESSION_INVALID")) {
-        Logger.error("Telegram session invalid in fetchAndSaveToServer - РЕАЛЬНАЯ ОШИБКА СЕССИИ", {
+      if (errorMessage.includes("TELEGRAM_SESSION_INVALID:")) {
+        Logger.error("Telegram session invalid in fetchVideoAndUploadToDrive - РЕАЛЬНАЯ ОШИБКА СЕССИИ", {
           userId,
           channelId,
           error: errorMessage
@@ -932,11 +924,12 @@ router.post("/fetchAndSaveToServer", authRequired, async (req, res) => {
 
       // Обработка специфичных ошибок
       if (errorMessage.includes("NO_VIDEO_FOUND")) {
-        return res.status(404).json({
-          status: "error",
-          message: "Видео ещё не готово в чате SyntX. Подождите окончания генерации и попробуйте ещё раз."
-        });
-      }
+      return res.status(404).json({
+        status: "error",
+        message:
+          "Видео ещё не готово в чате SyntX. Подождите окончания генерации и попробуйте ещё раз."
+      });
+    }
 
     if (errorMessage.includes("TELEGRAM_MESSAGE_NOT_FOUND")) {
       return res.status(404).json({
@@ -957,7 +950,7 @@ router.post("/fetchAndSaveToServer", authRequired, async (req, res) => {
 
     // ТОЧНАЯ проверка на TELEGRAM_SESSION_INVALID (только если это реальная ошибка сессии)
     if (errorMessage.includes("TELEGRAM_SESSION_INVALID:")) {
-      Logger.error("Telegram session invalid in fetchAndSaveToServer - РЕАЛЬНАЯ ОШИБКА СЕССИИ", {
+      Logger.error("Telegram session invalid in fetchVideoAndUploadToDrive - РЕАЛЬНАЯ ОШИБКА СЕССИИ", {
         userId,
         channelId,
         error: errorMessage
@@ -972,7 +965,7 @@ router.post("/fetchAndSaveToServer", authRequired, async (req, res) => {
 
     // Обработка ошибок скачивания (все остальные ошибки Telegram)
     if (errorMessage.includes("TELEGRAM_DOWNLOAD_ERROR") || errorMessage.includes("TELEGRAM_DOWNLOAD_FAILED")) {
-      Logger.warn("Telegram download failed (not session error) in fetchAndSaveToServer", {
+      Logger.warn("Telegram download failed (not session error) in fetchVideoAndUploadToDrive", {
         userId,
         channelId,
         error: errorMessage
@@ -994,6 +987,50 @@ router.post("/fetchAndSaveToServer", authRequired, async (req, res) => {
       });
     }
 
+    if (errorMessage.includes("GOOGLE_DRIVE_FOLDER_NOT_CONFIGURED")) {
+      return res.status(400).json({
+        status: "error",
+        message: errorMessage.replace("GOOGLE_DRIVE_FOLDER_NOT_CONFIGURED: ", "")
+      });
+    }
+
+    if (errorMessage.includes("GOOGLE_DRIVE_FOLDER_NOT_FOUND")) {
+      return res.status(400).json({
+        status: "error",
+        message: errorMessage.replace("GOOGLE_DRIVE_FOLDER_NOT_FOUND: ", "")
+      });
+    }
+
+    if (errorMessage.includes("GOOGLE_DRIVE_PERMISSION_DENIED")) {
+      return res.status(403).json({
+        status: "error",
+        message: errorMessage.replace("GOOGLE_DRIVE_PERMISSION_DENIED: ", "")
+      });
+    }
+
+    if (errorMessage.includes("GOOGLE_DRIVE_AUTH_FAILED")) {
+      return res.status(503).json({
+        status: "error",
+        message:
+          "Ошибка аутентификации Google Drive. Проверьте правильность GOOGLE_DRIVE_CLIENT_EMAIL и GOOGLE_DRIVE_PRIVATE_KEY в backend/.env"
+      });
+    }
+
+    if (errorMessage.includes("GOOGLE_DRIVE_QUOTA_EXCEEDED")) {
+      return res.status(429).json({
+        status: "error",
+        message: "Превышена квота Google Drive API. Попробуйте позже."
+      });
+    }
+
+    if (errorMessage.includes("GOOGLE_DRIVE_UPLOAD_FAILED")) {
+      return res.status(500).json({
+        status: "error",
+        message:
+          errorMessage.replace("GOOGLE_DRIVE_UPLOAD_FAILED: ", "") ||
+          "Ошибка при загрузке файла в Google Drive. Проверьте настройки и попробуйте позже."
+      });
+    }
 
       // Общая ошибка
       return res.status(500).json({
@@ -1010,7 +1047,7 @@ router.post("/fetchAndSaveToServer", authRequired, async (req, res) => {
     const folderId = err?.folderId;
     const userEmail = err?.userEmail;
     
-    Logger.error("Error in /api/telegram/fetchAndSaveToServer", {
+    Logger.error("Error in /api/telegram/fetchVideoAndUploadToDrive", {
       error: errorMessage,
       errorType,
       folderId,
@@ -1019,6 +1056,19 @@ router.post("/fetchAndSaveToServer", authRequired, async (req, res) => {
       channelId
     });
 
+        // Обработка ошибки требования переавторизации
+        if (
+          errorType === "GOOGLE_DRIVE_REAUTH_REQUIRED" ||
+          errorMessage.includes("GOOGLE_DRIVE_REAUTH_REQUIRED")
+        ) {
+          return res.status(400).json({
+            success: false,
+            errorType: "GOOGLE_DRIVE_REAUTH_REQUIRED",
+            message: errorMessage || "Необходимо заново подключить Google Drive для обновления прав доступа.",
+            folderId: folderId || undefined,
+            userEmail: userEmail || undefined
+          });
+        }
 
         // Обработка ошибок доступа к Google Drive папке
         if (

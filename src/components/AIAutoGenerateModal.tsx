@@ -10,7 +10,7 @@ import {
 } from "../services/openaiScriptGenerator";
 import {
   fetchLatestVideoToDrive,
-  fetchAndSaveToServer,
+  fetchVideoAndUploadToDrive,
   sendPromptToSyntx
 } from "../api/telegram";
 import { useChannelStore } from "../stores/channelStore";
@@ -339,16 +339,19 @@ const AIAutoGenerateModal = ({
       // Получаем название ролика из detailedResult.fileTitle
       const videoTitle = detailedResult?.fileTitle || null;
 
-      // Используем новый эндпоинт для сохранения на сервер
-      const result = await fetchAndSaveToServer(
+      // Используем новый эндпоинт с поддержкой временных файлов
+      const result = await fetchVideoAndUploadToDrive(
         channel.id,
+        channel.googleDriveFolderId,
         undefined, // telegramMessageId - не передаём, ищем последнее видео
         videoTitle || undefined // Передаём название ролика для имени файла
       );
 
       if (result.status === "ok" || result.status === "success" || result.success === true) {
         setDriveStatus("success");
-        setDriveMessage("🟢 Видео успешно сохранено на сервер");
+        const webViewLink = result.driveWebViewLink || result.webViewLink;
+        setDriveWebViewLink(webViewLink || null);
+        setDriveMessage("🟢 Видео успешно загружено в Google Drive");
       } else {
         setDriveStatus("error");
         setDriveMessage(
@@ -362,12 +365,16 @@ const AIAutoGenerateModal = ({
       const errorCode = err?.response?.data?.code || err?.response?.data?.error;
       const errorType = err?.response?.data?.errorType;
       const errorMessage = err?.response?.data?.message || err?.message;
+      const folderId = err?.response?.data?.folderId;
+      const userEmail = err?.response?.data?.userEmail;
       
-      console.error("Ошибка при сохранении видео на сервер:", {
+      console.error("Ошибка при загрузке видео в Google Drive:", {
         status: err?.response?.status,
         errorCode,
         errorType,
         errorMessage,
+        folderId,
+        userEmail,
         fullError: err
       });
       
@@ -382,6 +389,44 @@ const AIAutoGenerateModal = ({
         return;
       }
       
+      // Обработка ошибки требования переавторизации
+      if (
+        errorType === "GOOGLE_DRIVE_REAUTH_REQUIRED" ||
+        errorMessage?.includes("GOOGLE_DRIVE_REAUTH_REQUIRED")
+      ) {
+        setDriveMessage(
+          "🔴 Необходимо заново подключить Google Drive для обновления прав доступа. Перейдите в настройки аккаунта и переподключите Google Drive."
+        );
+        setDriveStatus("error");
+        return;
+      }
+
+      // Обработка ошибок доступа к Google Drive папке
+      if (
+        errorType === "FOLDER_ACCESS" ||
+        errorType === "FOLDER_NOT_FOUND" ||
+        errorType === "NOT_A_FOLDER" ||
+        errorMessage?.includes("GOOGLE_DRIVE_FOLDER_NOT_FOUND") ||
+        errorMessage?.includes("GOOGLE_DRIVE_PERMISSION_DENIED") ||
+        errorMessage?.includes("GOOGLE_DRIVE_NOT_A_FOLDER")
+      ) {
+        let message = "🔴 Папка недоступна. Проверьте ID и доступы в Google Drive.";
+        
+        if (errorType === "NOT_A_FOLDER" || errorMessage?.includes("GOOGLE_DRIVE_NOT_A_FOLDER")) {
+          message = `🔴 Указанный ID не является папкой Google Drive (ID: ${folderId || "не указан"}). Проверьте правильность ID в настройках канала.`;
+        } else if (errorType === "FOLDER_NOT_FOUND" || errorMessage?.includes("GOOGLE_DRIVE_FOLDER_NOT_FOUND")) {
+          message = `🔴 Папка не найдена (ID: ${folderId || "не указан"}). Проверьте правильность ID папки в настройках канала.`;
+        } else if (errorType === "FOLDER_ACCESS" || errorMessage?.includes("GOOGLE_DRIVE_PERMISSION_DENIED")) {
+          if (userEmail) {
+            message = `🔴 Google Drive: у текущего Google-аккаунта (${userEmail}) нет доступа к этой папке (ID: ${folderId || "не указан"}). Откройте доступ к папке для этого email с правами "Редактор" или укажите другой Folder ID.`;
+          } else {
+            message = `🔴 Google Drive: у текущего Google-аккаунта нет доступа к этой папке. Откройте доступ к папке для email, который указан в логах сервера (about.user.emailAddress), или укажите другой Folder ID.`;
+          }
+        }
+        
+        setDriveMessage(message);
+        return;
+      }
       
       // Обработка ошибок скачивания (все остальные ошибки Telegram)
       if (errorCode === "TELEGRAM_DOWNLOAD_FAILED" || errorMessage?.includes("TELEGRAM_DOWNLOAD")) {
@@ -392,7 +437,7 @@ const AIAutoGenerateModal = ({
         setDriveMessage(errorMessage);
       } else {
         setDriveMessage(
-          "Ошибка при сохранении видео на сервер. Попробуйте позже."
+          "Ошибка сервера при сохранении видео. Попробуйте позже."
         );
       }
     }
@@ -714,12 +759,12 @@ const AIAutoGenerateModal = ({
                           ) : driveStatus === "success" ? (
                             <>
                               <Check size={14} />
-                              Видео на сервере
+                              Видео в Google Drive
                             </>
                           ) : (
                             <>
                               <Sparkles size={14} />
-                              Забрать видео из SyntX на сервер
+                              Забрать видео из SyntX в Google Drive
                             </>
                           )}
                         </button>
@@ -748,7 +793,17 @@ const AIAutoGenerateModal = ({
                   )}
                   {driveStatus === "success" && driveMessage && (
                     <p className="mt-2 text-xs text-emerald-300">
-                      {driveMessage}
+                      {driveMessage}{" "}
+                      {driveWebViewLink && (
+                        <a
+                          href={driveWebViewLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="underline text-emerald-200 hover:text-emerald-100"
+                        >
+                          Открыть в Google Drive
+                        </a>
+                      )}
                     </p>
                   )}
                   {driveStatus === "error" && driveMessage && (

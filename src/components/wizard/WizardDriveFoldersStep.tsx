@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Loader2, CheckCircle2, FolderPlus, AlertCircle } from "lucide-react";
 import { generateDriveFoldersForWizard } from "../../api/channelDriveFolders";
+import { useIntegrationsStatus } from "../../hooks/useIntegrationsStatus";
 import { FieldHelpIcon } from "../aiAssistant/FieldHelpIcon";
 
 interface WizardDriveFoldersStepProps {
@@ -30,10 +31,17 @@ export function WizardDriveFoldersStep({
   const [archiveFolderId, setArchiveFolderId] = useState<string | null>(null);
   const [rootFolderName, setRootFolderName] = useState<string | null>(null);
   const [archiveFolderName, setArchiveFolderName] = useState<string | null>(null);
+  const integrationsStatus = useIntegrationsStatus();
   const hasAutoStartedRef = useRef(false);
   const minDisplayTimeRef = useRef<number | null>(null);
 
   const handleGenerate = async () => {
+    if (!integrationsStatus.status.googleDrive.connected) {
+      setError("Сначала подключите Google Drive");
+      setCreationStep("error");
+      return;
+    }
+
     if (!channelName || channelName.trim().length === 0) {
       setError("Название канала не может быть пустым");
       setCreationStep("error");
@@ -95,13 +103,17 @@ export function WizardDriveFoldersStep({
     } catch (error: any) {
       console.error("[WizardDriveFoldersStep] Failed to generate drive folders:", error);
       
-      let errorMessage = "Не удалось создать папки для канала";
+      let errorMessage = "Не удалось создать папки Google Drive";
       
       if (error.message) {
         const errorCode = error.code || error.message;
         const errorText = error.message.toLowerCase();
         
-        if (errorCode === "INVALID_CHANNEL_NAME") {
+        if (errorCode === "GOOGLE_DRIVE_NOT_CONNECTED" || errorText.includes("google_drive_not_connected")) {
+          errorMessage = "Сначала подключите Google Drive";
+        } else if (errorCode === "INSUFFICIENT_PERMISSIONS" || errorText.includes("insufficient_permissions")) {
+          errorMessage = "Ваш аккаунт Google не выдал необходимые разрешения. Переподключите Google Drive.";
+        } else if (errorCode === "INVALID_CHANNEL_NAME") {
           errorMessage = "Название канала не может быть пустым";
         } else {
           errorMessage = error.message || errorMessage;
@@ -113,10 +125,12 @@ export function WizardDriveFoldersStep({
     }
   };
 
-  // Автоматически запускаем создание папок при монтировании
+  // Автоматически запускаем создание папок при монтировании, если Google Drive подключен
   useEffect(() => {
     if (
       !hasAutoStartedRef.current &&
+      integrationsStatus.status.googleDrive.connected &&
+      !integrationsStatus.status.googleDrive.loading &&
       channelName &&
       channelName.trim().length > 0 &&
       creationStep === "idle"
@@ -130,10 +144,37 @@ export function WizardDriveFoldersStep({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    integrationsStatus.status.googleDrive.connected,
+    integrationsStatus.status.googleDrive.loading,
     channelName,
     creationStep
   ]);
 
+  // Если Google Drive не подключен, показываем предупреждение
+  if (!integrationsStatus.status.googleDrive.connected) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <h3 className="text-base font-semibold md:text-lg">Создание папок для канала</h3>
+          <FieldHelpIcon
+            fieldKey="wizard.drive_folders"
+            page="wizard"
+            channelContext={{
+              step: "drive_folders",
+              context: "wizard",
+              channelName
+            }}
+            label="Создание папок для канала"
+          />
+        </div>
+        <div className="rounded-xl border border-amber-500/30 bg-gradient-to-r from-amber-900/20 via-amber-900/15 to-transparent px-4 py-3 md:rounded-2xl md:px-5 md:py-3.5">
+          <p className="text-sm leading-relaxed text-amber-200 md:text-base">
+            <span className="font-semibold">⚠️ Для создания папок необходимо подключить Google Drive.</span> Вернитесь к предыдущему шагу и подключите Google Drive.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   // Если папки уже созданы, показываем успешное сообщение
   if (creationStep === "completed") {
@@ -224,7 +265,7 @@ export function WizardDriveFoldersStep({
       
       <div className="rounded-xl border border-brand/20 bg-gradient-to-r from-brand/10 via-brand/5 to-transparent px-4 py-3 md:rounded-2xl md:px-5 md:py-3.5">
         <p className="text-xs leading-relaxed text-slate-300 md:text-sm">
-          <span className="font-semibold text-brand-300">📁 Создаём папки для канала автоматически</span> на сервере. Будет создана основная папка канала и подпапка «uploaded». Система автоматически заполнит настройки канала.
+          <span className="font-semibold text-brand-300">📁 Создаём папки для канала автоматически</span> в вашем Google Drive. Будет создана основная папка канала и подпапка «uploaded». Система назначит необходимые права и автоматически заполнит настройки канала.
         </p>
       </div>
 
@@ -275,7 +316,7 @@ export function WizardDriveFoldersStep({
         <button
           type="button"
           onClick={() => void handleGenerate()}
-          disabled={false}
+          disabled={integrationsStatus.status.googleDrive.loading}
           className="w-full rounded-lg bg-brand px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
           <FolderPlus className="h-4 w-4" />

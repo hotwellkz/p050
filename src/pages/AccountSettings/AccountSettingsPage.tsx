@@ -3,6 +3,7 @@ import { Loader2, ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../../stores/authStore";
 import TelegramIntegration from "../../components/TelegramIntegration";
+import GoogleDriveIntegration from "../../components/GoogleDriveIntegration";
 import { SectionHelpButton } from "../../components/aiAssistant/SectionHelpButton";
 import { BlottataApiKeySettings } from "../../components/BlottataApiKeySettings";
 
@@ -72,6 +73,10 @@ const AccountSettingsPage = () => {
 
           <div className="border-t border-white/10 pt-6">
             <TelegramIntegration />
+          </div>
+
+          <div className="border-t border-white/10 pt-6">
+            <GoogleDriveIntegration />
           </div>
 
           <BlottataApiKeySettings />

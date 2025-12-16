@@ -4,7 +4,6 @@ import { db, isFirestoreAvailable } from "../services/firebaseAdmin";
 import { Logger } from "../utils/logger";
 import { authRequired } from "../middleware/auth";
 import { runVideoGenerationForChannel } from "../services/videoGenerationService";
-import { channelDeletionService } from "../services/channelDeletionService";
 import type { Channel } from "../types/channel";
 
 const router = Router();
@@ -1408,8 +1407,7 @@ function transformChannelForExport(data: any): any {
     youtubeUrl: data.youtubeUrl || null,
     tiktokUrl: data.tiktokUrl || null,
     instagramUrl: data.instagramUrl || null,
-    // googleDriveFolderId больше не используется (переход на локальное хранилище)
-    // googleDriveFolderId: data.googleDriveFolderId || null
+    googleDriveFolderId: data.googleDriveFolderId || null
   };
 }
 
@@ -1627,8 +1625,7 @@ router.post("/import", authRequired, async (req, res) => {
           youtubeUrl: channelData.youtubeUrl || null,
           tiktokUrl: channelData.tiktokUrl || null,
           instagramUrl: channelData.instagramUrl || null,
-          // googleDriveFolderId больше не используется (переход на локальное хранилище)
-          // googleDriveFolderId: channelData.googleDriveFolderId || null,
+          googleDriveFolderId: channelData.googleDriveFolderId || null,
           orderIndex: ++maxOrderIndex,
           createdAt: new Date(),
           updatedAt: new Date()
@@ -1694,9 +1691,8 @@ router.post("/import", authRequired, async (req, res) => {
 
 /**
  * POST /api/wizard/generate-drive-folders
- * Создаёт структуру папок для канала на backend-сервере
+ * Создаёт структуру папок Google Drive для канала в мастере (до создания канала в БД)
  * Body: { channelName: string, channelUuid?: string }
- * TODO: Переписать для работы с локальным хранилищем вместо Google Drive
  */
 router.post("/wizard/generate-drive-folders", authRequired, async (req, res) => {
   if (!isFirestoreAvailable() || !db) {
@@ -1728,17 +1724,25 @@ router.post("/wizard/generate-drive-folders", authRequired, async (req, res) => 
       });
     }
 
-    // TODO: Создаём папки на backend-сервере вместо Google Drive
-    // Пока что возвращаем заглушку с локальными ID
-    const rootFolderId = `local_${userId}_${channelUuid || Date.now()}_root`;
-    const archiveFolderId = `local_${userId}_${channelUuid || Date.now()}_archive`;
-    
-    const folders = {
-      rootFolderId,
-      archiveFolderId,
-      rootFolderName: `${channelName.trim()} — канал`,
-      archiveFolderName: "uploaded"
-    };
+    // Проверяем статус Google Drive интеграции
+    const { getIntegrationStatus } = await import("../services/GoogleDriveOAuthService");
+    const integrationStatus = await getIntegrationStatus(userId);
+
+    if (!integrationStatus.connected) {
+      return res.status(400).json({
+        success: false,
+        error: "GOOGLE_DRIVE_NOT_CONNECTED",
+        message: "Сначала подключите Google Drive в настройках аккаунта"
+      });
+    }
+
+    // Создаём папки через сервис для мастера
+    const { createChannelFoldersForWizard } = await import("../services/googleDriveFolderService");
+    const folders = await createChannelFoldersForWizard({
+      userId,
+      channelName: channelName.trim(),
+      channelUuid
+    });
 
     Logger.info("Channel folders generated for wizard", {
       userId,
@@ -1762,18 +1766,50 @@ router.post("/wizard/generate-drive-folders", authRequired, async (req, res) => 
       stack: error?.stack
     });
 
+    // Обработка специфичных ошибок
+    if (error?.message?.includes("GOOGLE_DRIVE_NOT_CONNECTED")) {
+      return res.status(400).json({
+        success: false,
+        error: "GOOGLE_DRIVE_NOT_CONNECTED",
+        message: "Сначала подключите Google Drive в настройках аккаунта"
+      });
+    }
+
+    if (error?.message?.includes("GOOGLE_DRIVE_SERVICE_ACCOUNT_NOT_CONFIGURED")) {
+      return res.status(503).json({
+        success: false,
+        error: "SERVICE_ACCOUNT_NOT_CONFIGURED",
+        message: "Сервисный аккаунт Google Drive не настроен"
+      });
+    }
+
+    if (error?.message?.includes("GOOGLE_DRIVE_CREATE_FOLDER_FAILED")) {
+      return res.status(500).json({
+        success: false,
+        error: "CREATE_FOLDER_FAILED",
+        message: error.message.replace("GOOGLE_DRIVE_CREATE_FOLDER_FAILED: ", "")
+      });
+    }
+
+    if (error?.message?.includes("GOOGLE_DRIVE_SHARE_FAILED")) {
+      return res.status(500).json({
+        success: false,
+        error: "SHARE_FOLDER_FAILED",
+        message: error.message.replace("GOOGLE_DRIVE_SHARE_FAILED: ", "")
+      });
+    }
+
     res.status(500).json({
       success: false,
       error: "INTERNAL_ERROR",
-      message: "Не удалось создать папки для канала"
+      message: "Не удалось создать папки Google Drive"
     });
   }
 });
 
 /**
  * POST /api/channels/:id/generate-drive-folders
- * Создаёт структуру папок для канала на backend-сервере
- * TODO: Переписать для работы с локальным хранилищем вместо Google Drive
+ * Создаёт структуру папок Google Drive для канала и автоматически заполняет поля
  */
 router.post("/:id/generate-drive-folders", authRequired, async (req, res) => {
   if (!isFirestoreAvailable() || !db) {
@@ -1808,20 +1844,29 @@ router.post("/:id/generate-drive-folders", authRequired, async (req, res) => {
 
     const channelData = channelDoc.data() as Channel;
 
-    // TODO: Создаём папки на backend-сервере вместо Google Drive
-    // Пока что возвращаем заглушку с локальными ID
-    const rootFolderId = `local_${userId}_${channelId}_root`;
-    const archiveFolderId = `local_${userId}_${channelId}_archive`;
-    
-    const folders = {
-      rootFolderId,
-      archiveFolderId,
-      rootFolderName: `${channelData.name} — канал`,
-      archiveFolderName: "uploaded"
-    };
+    // Проверяем статус Google Drive интеграции
+    const { getIntegrationStatus } = await import("../services/GoogleDriveOAuthService");
+    const integrationStatus = await getIntegrationStatus(userId);
 
-    // Обновляем канал с новыми folder ID (без googleDriveFolderId)
+    if (!integrationStatus.connected) {
+      return res.status(400).json({
+        success: false,
+        error: "GOOGLE_DRIVE_NOT_CONNECTED",
+        message: "Сначала подключите Google Drive в настройках аккаунта"
+      });
+    }
+
+    // Создаём папки
+    const { createChannelFolders } = await import("../services/googleDriveFolderService");
+    const folders = await createChannelFolders({
+      userId,
+      channelName: channelData.name,
+      channelId
+    });
+
+    // Обновляем канал с новыми folder ID
     await channelRef.update({
+      googleDriveFolderId: folders.rootFolderId,
       driveInputFolderId: folders.rootFolderId,
       driveArchiveFolderId: folders.archiveFolderId,
       updatedAt: new Date()
@@ -1896,76 +1941,6 @@ router.post("/:id/generate-drive-folders", authRequired, async (req, res) => {
       success: false,
       error: "INTERNAL_ERROR",
       message: error?.message || "Не удалось создать папки Google Drive"
-    });
-  }
-});
-
-/**
- * DELETE /api/channels/:channelId
- * Полностью удаляет канал и все связанные данные (Firestore + локальное хранилище)
- */
-router.delete("/:channelId", authRequired, async (req, res) => {
-  if (!isFirestoreAvailable() || !db) {
-    return res.status(503).json({
-      error: "Firestore is not available",
-      message: "Firebase Admin не настроен"
-    });
-  }
-
-  try {
-    const userId = req.user!.uid;
-    const { channelId } = req.params;
-
-    if (!channelId) {
-      return res.status(400).json({
-        error: "Invalid request",
-        message: "channelId обязателен"
-      });
-    }
-
-    Logger.info("Channel deletion endpoint called", {
-      userId,
-      channelId
-    });
-
-    // Вызываем сервис каскадного удаления
-    await channelDeletionService.deleteChannelCompletely(userId, channelId);
-
-    Logger.info("Channel deletion completed successfully", {
-      userId,
-      channelId
-    });
-
-    res.json({
-      success: true,
-      message: "Канал и все связанные данные успешно удалены"
-    });
-  } catch (error: any) {
-    Logger.error("Channel deletion failed", {
-      userId: req.user!.uid,
-      channelId: req.params.channelId,
-      error: error?.message || String(error),
-      stack: error?.stack
-    });
-
-    // Проверяем тип ошибки для правильного HTTP статуса
-    if (error?.message?.includes("not found") || error?.message?.includes("not found")) {
-      return res.status(404).json({
-        error: "Not found",
-        message: "Канал не найден"
-      });
-    }
-
-    if (error?.message?.includes("Forbidden") || error?.message?.includes("не принадлежит")) {
-      return res.status(403).json({
-        error: "Forbidden",
-        message: "Канал не принадлежит текущему пользователю"
-      });
-    }
-
-    res.status(500).json({
-      error: "Internal server error",
-      message: error?.message || "Ошибка при удалении канала"
     });
   }
 });

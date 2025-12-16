@@ -22,7 +22,6 @@ import ChannelCardCompact from "../../components/ChannelCardCompact";
 import AIAutoGenerateModal from "../../components/AIAutoGenerateModal";
 import CustomPromptModal from "../../components/CustomPromptModal";
 import ChannelImportModal from "../../components/ChannelImportModal";
-import DeleteChannelModal from "../../components/DeleteChannelModal";
 import UserMenu from "../../components/UserMenu";
 import NotificationBell from "../../components/NotificationBell";
 import { useAuthStore } from "../../stores/authStore";
@@ -62,8 +61,6 @@ const ChannelListPage = () => {
   const [selectedChannelForCustomPrompt, setSelectedChannelForCustomPrompt] =
     useState<Channel | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [channelToDelete, setChannelToDelete] = useState<Channel | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [localChannels, setLocalChannels] = useState<Channel[]>([]);
@@ -253,63 +250,17 @@ const ChannelListPage = () => {
     return () => clearInterval(intervalId);
   }, [localChannels, minIntervalMinutes]);
 
-  const handleDelete = async (channel: Channel) => {
+  const handleDelete = async (channelId: string) => {
     if (!user?.uid) {
       return;
     }
-    setChannelToDelete(channel);
-    setIsDeleteModalOpen(true);
-  };
-
-  const handleConfirmDelete = async () => {
-    if (!user?.uid || !channelToDelete) {
+    const confirmed = window.confirm(
+      "Удалить канал? Его настройки будут потеряны."
+    );
+    if (!confirmed) {
       return;
     }
-
-    try {
-      const token = await getAuthToken();
-      if (!token) {
-        setToast({
-          message: "Ошибка авторизации. Перезайдите в систему.",
-          type: "error"
-        });
-        return;
-      }
-
-      const response = await fetch(
-        `${backendBaseUrl}/api/channels/${channelToDelete.id}`,
-        {
-          method: "DELETE",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`
-          }
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || "Ошибка при удалении канала");
-      }
-
-      // Обновляем локальное состояние
-      await deleteChannel(user.uid, channelToDelete.id);
-
-      setToast({
-        message: "Канал и все связанные данные успешно удалены",
-        type: "success"
-      });
-
-      setIsDeleteModalOpen(false);
-      setChannelToDelete(null);
-    } catch (error: any) {
-      console.error("Error deleting channel:", error);
-      setToast({
-        message: error?.message || "Ошибка при удалении канала",
-        type: "error"
-      });
-      throw error; // Пробрасываем ошибку для обработки в модалке
-    }
+    await deleteChannel(user.uid, channelId);
   };
 
   const goToWizard = () => {
@@ -1001,7 +952,7 @@ const ChannelListPage = () => {
                         automationStateInfo={stateInfo}
                         minIntervalMinutes={minIntervalMinutes}
                         onEdit={() => goToEdit(channel.id)}
-                        onDelete={() => handleDelete(channel)}
+                        onDelete={() => handleDelete(channel.id)}
                         onGenerate={() => goToGeneration(channel.id)}
                         onAutoGenerate={() => handleAutoGenerate(channel)}
                         onCustomPrompt={() => handleCustomPrompt(channel)}
@@ -1032,7 +983,7 @@ const ChannelListPage = () => {
                           automationStateInfo={stateInfo}
                           minIntervalMinutes={minIntervalMinutes}
                           onEdit={() => goToEdit(channel.id)}
-                          onDelete={() => handleDelete(channel)}
+                          onDelete={() => handleDelete(channel.id)}
                           onGenerate={() => goToGeneration(channel.id)}
                           onAutoGenerate={() => handleAutoGenerate(channel)}
                           onCustomPrompt={() => handleCustomPrompt(channel)}
@@ -1070,17 +1021,6 @@ const ChannelListPage = () => {
       <ChannelImportModal
         isOpen={isImportModalOpen}
         onClose={handleImportClose}
-      />
-
-      {/* Delete Channel Modal */}
-      <DeleteChannelModal
-        isOpen={isDeleteModalOpen}
-        onClose={() => {
-          setIsDeleteModalOpen(false);
-          setChannelToDelete(null);
-        }}
-        onConfirm={handleConfirmDelete}
-        channelName={channelToDelete?.name || "канал"}
       />
     </div>
   );

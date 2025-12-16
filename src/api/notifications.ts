@@ -1,15 +1,6 @@
 import { getAuth } from "firebase/auth";
 
-// Базовый URL backend-а:
-// 1) VITE_API_BASE_URL (если задан специально для уведомлений)
-// 2) VITE_API_URL (общий base URL API)
-// 3) VITE_BACKEND_URL (URL backend-а на Cloud Run)
-// 4) fallback: localhost для дев-режима
-const API_BASE_URL =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
-  (import.meta.env.VITE_API_URL as string | undefined) ||
-  (import.meta.env.VITE_BACKEND_URL as string | undefined) ||
-  "http://localhost:8080";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
 
 export type NotificationType = 
   | "video_uploaded" 

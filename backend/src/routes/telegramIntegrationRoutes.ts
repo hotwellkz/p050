@@ -6,10 +6,6 @@ import {
   disconnectTelegram,
   getIntegrationStatus
 } from "../services/TelegramUserService";
-import {
-  findTelegramIntegrationByUserId,
-  updateTelegramIntegration
-} from "../repositories/telegramUserIntegrationRepo";
 import { Logger } from "../utils/logger";
 
 const router = Router();
@@ -217,15 +213,7 @@ router.post("/reset", authRequired, async (req, res) => {
   try {
     const userId = req.user!.uid;
     
-    // Сбрасываем интеграцию
-    const integration = await findTelegramIntegrationByUserId(userId);
-    if (integration) {
-      await updateTelegramIntegration(integration.id, {
-        status: "not_connected",
-        lastError: null,
-        meta: null
-      });
-    }
+    await resetIntegration(userId);
     
     return res.json({
       success: true,

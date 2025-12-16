@@ -893,16 +893,16 @@ export async function processAutoSendTick(): Promise<void> {
                     channelId: channel.id,
                     scheduleId: schedule.id,
                     messageId: promptResult.messageId,
-                    willRunInMinutes: delayMinutes,
-                    willRunAt: new Date(Date.now() + delayMinutes * 60 * 1000).toISOString()
+                    willRunInMinutes: validDelay,
+                    willRunAt: new Date(Date.now() + validDelay * 60 * 1000).toISOString()
                   });
 
                   Logger.info("processAutoSendTick: auto-download scheduled successfully", {
                     channelId: channel.id,
                     scheduleId: schedule.id,
                     taskId,
-                    willRunInMinutes: delayMinutes,
-                    willRunAt: new Date(Date.now() + delayMinutes * 60 * 1000).toISOString()
+                    willRunInMinutes: validDelay,
+                    willRunAt: new Date(Date.now() + validDelay * 60 * 1000).toISOString()
                   });
                 } catch (scheduleError) {
                   // Логируем ошибку планирования, но не прерываем основной процесс

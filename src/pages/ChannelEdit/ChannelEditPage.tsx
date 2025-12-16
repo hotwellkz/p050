@@ -23,6 +23,7 @@ import TelegramGlobalPasswordModal from "../../components/TelegramGlobalPassword
 import { FieldHelpIcon } from "../../components/aiAssistant/FieldHelpIcon";
 import { IntegrationsStatusBlock } from "../../components/IntegrationsStatusBlock";
 import { useIntegrationsStatus } from "../../hooks/useIntegrationsStatus";
+import { GenerateDriveFoldersButton } from "../../components/GenerateDriveFoldersButton";
 import { getUserSettings } from "../../api/userSettings";
 import { getBlotatoPublishStatus, type BlotatoPublishSettings } from "../../utils/blotatoStatus";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
@@ -464,13 +465,13 @@ const ChannelEditPage = () => {
     // Валидация настроек Blotato
     if (channel.blotataEnabled) {
       if (!channel.driveInputFolderId || channel.driveInputFolderId.trim() === "") {
-        const errorMsg = "Для автопубликации через Blotato необходимо указать ID входной папки на сервере";
+        const errorMsg = "Для автопубликации через Blotato необходимо указать ID входной папки Google Drive";
         setError(errorMsg);
         showError(errorMsg, 6000);
         return;
       }
       if (!channel.driveArchiveFolderId || channel.driveArchiveFolderId.trim() === "") {
-        const errorMsg = "Для автопубликации через Blotato необходимо указать ID архивной папки на сервере";
+        const errorMsg = "Для автопубликации через Blotato необходимо указать ID папки архива Google Drive";
         setError(errorMsg);
         showError(errorMsg, 6000);
         return;
@@ -1431,6 +1432,94 @@ const ChannelEditPage = () => {
                 </div>
               </Accordion>
 
+              {/* Google Drive настройки */}
+              <div className="mt-6 space-y-2">
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-200">
+                  <span>Google Drive Folder ID (опционально)</span>
+                  <FieldHelpIcon
+                    fieldKey="channel.googleDriveFolderId"
+                    page="channelEdit"
+                    channelContext={{
+                      name: channel.name,
+                      platform: channel.platform,
+                      language: channel.language
+                    }}
+                    currentValue={channel.googleDriveFolderId}
+                    label="Google Drive Folder ID"
+                  />
+                </label>
+                <input
+                  type="text"
+                  value={channel.googleDriveFolderId || ""}
+                  onChange={(e) =>
+                    setChannel({
+                      ...channel,
+                      googleDriveFolderId: e.target.value.trim() || undefined
+                    })
+                  }
+                  placeholder="Например: 1AbCdEfGhIjKlMnOpQrStUvWxYz"
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-brand focus:ring-2 focus:ring-brand/40"
+                />
+                <p className="text-xs text-slate-400">
+                  Укажите ID папки на Google Drive, в которую будут сохраняться
+                  видео из SyntX для этого канала.
+                </p>
+                {channel.googleDriveFolderId && !integrationsStatus.status.googleDrive.connected && (
+                  <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-900/20 p-3">
+                    <div className="flex items-start gap-2">
+                      <div className="flex-1">
+                        <div className="text-sm font-medium text-amber-300">
+                          ⚠️ Google Drive не подключён
+                        </div>
+                        <p className="mt-1 text-xs text-amber-200/80">
+                          Чтобы загрузка видео работала, подключите Google Drive.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const currentPath = window.location.pathname;
+                              if (currentPath.includes("/channels/") && currentPath.includes("/edit")) {
+                                sessionStorage.setItem("googleDriveReturnTo", currentPath);
+                              }
+                              const { getGoogleDriveAuthUrl } = await import("../../api/googleDriveIntegration");
+                              const { authUrl } = await getGoogleDriveAuthUrl();
+                              window.location.href = authUrl;
+                            } catch (error: any) {
+                              showError(`Не удалось подключить Google Drive: ${error.message || "Неизвестная ошибка"}`, 5000);
+                            }
+                          }}
+                          className="mt-2 rounded-lg bg-amber-500/20 px-3 py-1.5 text-xs font-medium text-amber-300 transition hover:bg-amber-500/30"
+                        >
+                          Подключить Google Drive
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Кнопка автоматического создания папок */}
+                {integrationsStatus.status.googleDrive.connected && channelId && (
+                  <GenerateDriveFoldersButton
+                    channelId={channelId}
+                    channelName={channel.name}
+                    hasExistingFolders={!!(channel.googleDriveFolderId || channel.driveInputFolderId || channel.driveArchiveFolderId)}
+                    onFoldersGenerated={(rootFolderId, archiveFolderId) => {
+                      // Обновляем состояние канала с новыми folder ID
+                      setChannel({
+                        ...channel,
+                        googleDriveFolderId: rootFolderId,
+                        driveInputFolderId: rootFolderId,
+                        driveArchiveFolderId: archiveFolderId
+                      });
+                      // Обновляем список каналов для синхронизации
+                      if (user?.uid) {
+                        fetchChannels(user.uid);
+                      }
+                    }}
+                  />
+                )}
+              </div>
             </div>
 
             {/* Блок автоотправки в Syntx */}
@@ -1768,6 +1857,119 @@ const ChannelEditPage = () => {
               </Accordion>
             </div>
 
+            {/* Блок автоматического скачивания в Google Drive */}
+            <div className="border-t border-white/10 pt-6">
+              <Accordion
+                defaultOpen={false}
+                summary={
+                  <div className="flex items-center justify-between w-full">
+                    <div>
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+                        Автоматическое скачивание в Google Drive
+                      </h3>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {channel.autoDownloadToDriveEnabled ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-2 py-0.5 text-emerald-300">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+                            Включено
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-700/50 px-2 py-0.5 text-slate-400">
+                            <span className="h-1.5 w-1.5 rounded-full bg-slate-500"></span>
+                            Выключено
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                }
+              >
+                <div className="space-y-6">
+                  <p className="text-xs text-slate-500">
+                    Настройте автоматическое скачивание видео из Telegram и загрузку в Google Drive после автогенерации промпта.
+                  </p>
+
+                  {/* Переключатель включения автоскачивания */}
+                  <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="autoDownloadToDriveEnabled"
+                  checked={channel.autoDownloadToDriveEnabled || false}
+                  onChange={(e) =>
+                    setChannel({
+                      ...channel,
+                      autoDownloadToDriveEnabled: e.target.checked
+                    })
+                  }
+                  className="h-5 w-5 rounded border-white/20 bg-slate-950/60 text-brand focus:ring-2 focus:ring-brand/40"
+                />
+                <label
+                  htmlFor="autoDownloadToDriveEnabled"
+                  className="text-sm font-medium text-slate-200"
+                >
+                  Автоматически скачивать видео из Telegram и загружать в Google Drive после автогенерации
+                </label>
+              </div>
+
+              {channel.autoDownloadToDriveEnabled && (
+                <div className="space-y-4">
+                  {/* Информация о задержке (вычисляется автоматически) */}
+                  <div className="rounded-lg border border-white/10 bg-slate-900/40 p-4">
+                    <div className="mb-2 text-sm font-medium text-slate-200">
+                      Задержка перед скачиванием
+                    </div>
+                    <p className="mb-3 text-sm text-slate-300">
+                      Задержка перед скачиванием вычисляется автоматически на основе расписания каналов.
+                      Скачивание запускается примерно за 1 минуту до минимального интервала между публикациями в текущем диапазоне времени суток.
+                    </p>
+                    {scheduleSettings && (
+                      <div className="mt-3 space-y-2 text-xs text-slate-400">
+                        <div className="flex items-center justify-between">
+                          <span>00:00–13:00:</span>
+                          <span className="font-medium text-slate-300">
+                            {(scheduleSettings.minInterval_00_13 ?? scheduleSettings.minIntervalMinutes ?? 11) - 1} мин
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>13:00–17:00:</span>
+                          <span className="font-medium text-slate-300">
+                            {(scheduleSettings.minInterval_13_17 ?? scheduleSettings.minIntervalMinutes ?? 11) - 1} мин
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>17:00–24:00:</span>
+                          <span className="font-medium text-slate-300">
+                            {(scheduleSettings.minInterval_17_24 ?? scheduleSettings.minIntervalMinutes ?? 11) - 1} мин
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    <p className="mt-3 text-xs text-slate-400">
+                      Изменить интервалы можно на странице{" "}
+                      <button
+                        type="button"
+                        onClick={() => navigate("/channels/schedule")}
+                        className="text-brand hover:text-brand/80 underline"
+                      >
+                        "Расписание каналов"
+                      </button>
+                      .
+                    </p>
+                  </div>
+
+                  {/* Предупреждение о необходимости настройки Google Drive папки */}
+                  {!channel.googleDriveFolderId && (
+                    <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4">
+                      <p className="text-sm text-yellow-200">
+                        ⚠️ Для работы автоматического скачивания необходимо указать ID папки Google Drive выше.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+                </div>
+              </Accordion>
+            </div>
 
             {/* Блок уведомлений */}
             <div className="border-t border-white/10 pt-6">
@@ -1929,7 +2131,7 @@ const ChannelEditPage = () => {
               
               <p className="mb-4 text-sm text-slate-400">
                 Настройте автоматическую публикацию видео в социальные сети через Blotato API. 
-                Файлы из указанной входной папки на сервере будут автоматически публиковаться на выбранные платформы.
+                Файлы из указанной входной папки Google Drive будут автоматически публиковаться на выбранные платформы.
               </p>
 
               {/* Переключатель включения Blotato */}
@@ -1956,14 +2158,14 @@ const ChannelEditPage = () => {
 
               {channel.blotataEnabled && (
                 <div className="space-y-4">
-                  {/* ID входной папки на сервере */}
+                  {/* ID входной папки Google Drive */}
                   <div className="space-y-2">
                     <label className={`flex items-center gap-2 text-sm font-medium ${
-                      status.status === 'needs_setup' && status.missing.includes('ID входной папки на сервере')
+                      status.status === 'needs_setup' && status.missing.includes('ID входной папки Google Drive')
                         ? 'text-red-300'
                         : 'text-slate-200'
                     }`}>
-                      <span>ID входной папки на сервере *</span>
+                      <span>ID входной папки Google Drive *</span>
                       <FieldHelpIcon
                         fieldKey="channel.driveInputFolderId"
                         page="channelEdit"
@@ -1974,7 +2176,7 @@ const ChannelEditPage = () => {
                           blotataEnabled: channel.blotataEnabled
                         }}
                         currentValue={channel.driveInputFolderId}
-                        label="ID входной папки на сервере"
+                        label="ID входной папки Google Drive"
                       />
                     </label>
                     <input
@@ -1986,26 +2188,26 @@ const ChannelEditPage = () => {
                           driveInputFolderId: e.target.value.trim() || undefined
                         })
                       }
-                      placeholder="Например: local_user123_channel456_root"
+                      placeholder="Например: 1F1NzA7Z5XIVzVt4s4Zo1kZRVt-SXO000"
                       className={`w-full rounded-xl border bg-slate-950/60 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:ring-2 ${
-                        status.status === 'needs_setup' && status.missing.includes('ID входной папки на сервере')
+                        status.status === 'needs_setup' && status.missing.includes('ID входной папки Google Drive')
                           ? 'border-red-500/50 focus:border-red-500 focus:ring-red-500/40'
                           : 'border-white/10 focus:border-brand focus:ring-brand/40'
                       }`}
                     />
                     <p className="text-xs text-slate-400">
-                      Папка на сервере, где появляются готовые видео для этого канала. Система отслеживает новые файлы в этой папке.
+                      Папка, где появляются готовые видео для этого канала. Система будет отслеживать новые файлы в этой папке.
                     </p>
                   </div>
 
-                  {/* ID архивной папки на сервере */}
+                  {/* ID папки архива Google Drive */}
                   <div className="space-y-2">
                     <label className={`flex items-center gap-2 text-sm font-medium ${
-                      status.status === 'needs_setup' && status.missing.includes('ID архивной папки на сервере')
+                      status.status === 'needs_setup' && status.missing.includes('ID папки архива Google Drive')
                         ? 'text-red-300'
                         : 'text-slate-200'
                     }`}>
-                      <span>ID архивной папки на сервере *</span>
+                      <span>ID папки архива Google Drive *</span>
                       <FieldHelpIcon
                         fieldKey="channel.driveArchiveFolderId"
                         page="channelEdit"
@@ -2016,7 +2218,7 @@ const ChannelEditPage = () => {
                           blotataEnabled: channel.blotataEnabled
                         }}
                         currentValue={channel.driveArchiveFolderId}
-                        label="ID архивной папки на сервере"
+                        label="ID папки архива Google Drive"
                       />
                     </label>
                     <input
@@ -2028,15 +2230,15 @@ const ChannelEditPage = () => {
                           driveArchiveFolderId: e.target.value.trim() || undefined
                         })
                       }
-                      placeholder="Например: local_user123_channel456_archive"
+                      placeholder="Например: 1O45ZqVwqqV5jMV83h_Y1JUZE89KaRic8"
                       className={`w-full rounded-xl border bg-slate-950/60 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:ring-2 ${
-                        status.status === 'needs_setup' && status.missing.includes('ID архивной папки на сервере')
+                        status.status === 'needs_setup' && status.missing.includes('ID папки архива Google Drive')
                           ? 'border-red-500/50 focus:border-red-500 focus:ring-red-500/40'
                           : 'border-white/10 focus:border-brand focus:ring-brand/40'
                       }`}
                     />
                     <p className="text-xs text-slate-400">
-                      Папка на сервере, куда будут перемещаться файлы после успешной публикации.
+                      Папка, куда будут перемещаться файлы после успешной публикации.
                     </p>
                   </div>
 

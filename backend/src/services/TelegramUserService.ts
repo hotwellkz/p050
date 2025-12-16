@@ -12,11 +12,15 @@ import {
 import type { TelegramIntegrationStatus } from "../types/telegramUserIntegration";
 import { getClientForUser, clearClientCache } from "../integrations/telegram/TelegramUserClient";
 
-const apiId = Number(process.env.TELEGRAM_API_ID);
-const apiHash = process.env.TELEGRAM_API_HASH ?? "";
+function getTelegramCredentials() {
+  const apiId = Number(process.env.TELEGRAM_API_ID);
+  const apiHash = process.env.TELEGRAM_API_HASH ?? "";
 
-if (!apiId || !apiHash) {
-  throw new Error("TELEGRAM_API_ID and TELEGRAM_API_HASH must be set");
+  if (!apiId || !apiHash) {
+    throw new Error("TELEGRAM_API_ID and TELEGRAM_API_HASH must be set");
+  }
+
+  return { apiId, apiHash };
 }
 
 // Временное хранилище для клиентов в процессе авторизации
@@ -91,6 +95,7 @@ export async function requestCode(
     await clearPendingAuthState(userId);
 
     // Создаем временный клиент для авторизации
+    const { apiId, apiHash } = getTelegramCredentials();
     const stateId = `${userId}_${Date.now()}`;
     const session = new StringSession("");
     const client = new TelegramClient(session, apiId, apiHash, {
@@ -185,7 +190,6 @@ export async function confirmCode(
       }
       
       // Клиент истёк - нужно запросить новый код
-      const phoneCodeHash = integration.meta?.phoneCodeHash as string;
       Logger.warn("confirmCode: Authorization client expired", {
         userId,
         stateId,
@@ -237,7 +241,7 @@ export async function confirmCode(
         hasFirstName: !!(signInResult as any)?.firstName
       });
 
-      user = signInResult as unknown as Api.TypeUser;
+      user = signInResult as Api.TypeUser;
     } catch (error: any) {
       const errorMessage = String(error?.message ?? error?.errorMessage ?? error);
       const errorCode = error?.code;
@@ -288,7 +292,7 @@ export async function confirmCode(
             new Api.auth.CheckPassword({
               password: passwordHash
             })
-          ) as unknown as Api.TypeUser;
+          ) as Api.TypeUser;
         } catch (pwdError: any) {
           const pwdErrorMessage = String(pwdError?.message ?? pwdError);
           if (pwdErrorMessage.includes("PASSWORD_HASH_INVALID")) {
