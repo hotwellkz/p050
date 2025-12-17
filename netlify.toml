@@ -1,15 +1,20 @@
 [build]
+  # Frontend build settings
   command = "npm run build"
   publish = "dist"
+  base = "."
 
 [build.environment]
   # Отключить умное сканирование секретов для Firebase API ключей
   # Firebase API ключи (начинающиеся с "AIza") являются публичными ключами,
   # предназначенными для использования в клиентском коде
   SECRETS_SCAN_SMART_DETECTION_ENABLED = "false"
+  NODE_VERSION = "22"
 
+# SPA redirects - все маршруты должны идти на index.html
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
+  force = true
 
